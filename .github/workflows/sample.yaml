@@ -1,17 +1,63 @@
-name: GitHub Actions Demo
-on: [push]
+name: Sample Application CI Demo
+on:
+  push:
+    branches:
+      - dev
+      - qa
+      - main
+
 jobs:
-  Explore-GitHub-Actions:
+  Build:
     runs-on: ubuntu-latest
+    outputs:
+      url: "https://${{ steps.vercel_preview_url.outputs.preview_url }}"
     steps:
-      - run: echo "🎉 The job was automatically triggered by a ${{ github.event_name }} event."
-      - run: echo "🐧 This job is now running on a ${{ runner.os }} server hosted by GitHub!"
-      - run: echo "🔎 The name of your branch is ${{ github.ref }} and your repository is ${{ github.repository }}."
-      - name: Check out repository code
+      - name: Check out Application code
         uses: actions/checkout@v2
-      - run: echo "💡 The ${{ github.repository }} repository has been cloned to the runner."
-      - run: echo "🖥️ The workflow is now ready to test your code on the runner."
-      - name: List files in the repository
-        run: |
-          ls ${{ github.workspace }}
-      - run: echo "🍏 This job's status is ${{ job.status }}."
+      - name: Deploy Application to Vercel
+        uses: zentered/vercel-preview-url@v1.0.0
+        id: vercel_preview_url
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        with:
+          vercel_team_id: ${{ secrets.VERCEL_TEAM_ID }}
+          vercel_project_id: ${{ secrets.VERCEL_PROJECT_ID }}
+      - name: Get Application URL
+        run: echo "https://${{ steps.vercel_preview_url.outputs.preview_url }}"
+      - name: Wait Until Application Deployed
+        uses: UnlyEd/github-action-await-vercel@v1.1.0
+        id: await-vercel
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        with:
+          deployment-url: ${{ steps.vercel_preview_url.outputs.preview_url }}
+          timeout: 10
+      - name: Get Deployment Status
+        run: "echo The deployment at ${{ fromJson(steps.await-vercel.outputs.deploymentDetails).url }} is ${{ fromJson(steps.await-vercel.outputs.deploymentDetails).readyState }}"
+
+  Test:
+    runs-on: ubuntu-latest
+    needs: Build
+    steps:
+      - name: Check out Test Automation code
+        uses: actions/checkout@v2
+        with:
+          repository: "dimitriharding/sample-ci-webdriverio-test"
+          ref: "main"
+      - name: Install Test dependencies
+        uses: docker://buildkite/puppeteer:latest
+        with:
+          args: npm install
+      - name: Execute Automated Tests
+        env:
+          URL: ${{ needs.Build.outputs.url }}
+        uses: docker://buildkite/puppeteer:latest
+        with:
+          args: npm test
+
+  Deploy:
+    runs-on: ubuntu-latest
+    needs: Test
+    steps:
+      - name: Deploy Application Code
+        run: echo "Deploy steps would go here"
